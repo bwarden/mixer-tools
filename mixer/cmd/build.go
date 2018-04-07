@@ -37,6 +37,9 @@ type buildCmdFlags struct {
 	prefix     string
 	noPublish  bool
 	keepChroot bool
+	breakBump bool
+	continueBump bool
+
 	template   string
 
 	numFullfileWorkers int
@@ -123,6 +126,14 @@ var buildOldFormatCmd = &cobra.Command{
 		if err != nil {
 			fail(err)
 		}
+		var prevFormat int
+		var prevVersion int
+		var dest string
+		var source string
+
+		if buildFlags.continueBump {
+			goto CONTINUEBUMP
+		}
 
 		// Update the mixversion just in case the user did not pass --increment
 		// This must be the +20 to write the new format data files even though we
@@ -166,13 +177,13 @@ var buildOldFormatCmd = &cobra.Command{
 
 		// Copy +20 chroots to +10 so we can build last formatN build with the
 		// same content
-		prevVersion, err := strconv.Atoi(b.MixVer)
+		prevVersion, err = strconv.Atoi(b.MixVer)
 		if err != nil {
 			fail(err)
 		}
 		prevVersion -= 10
-		source := filepath.Join(b.Config.Builder.ServerStateDir, "image", b.MixVer)
-		dest := filepath.Join(b.Config.Builder.ServerStateDir, "image", strconv.Itoa(prevVersion))
+		source = filepath.Join(b.Config.Builder.ServerStateDir, "image", b.MixVer)
+		dest = filepath.Join(b.Config.Builder.ServerStateDir, "image", strconv.Itoa(prevVersion))
 		fmt.Println(" Copying +20 chroots to +10 chroots")
 		if err = helpers.RunCommandSilent("cp", "-al", source, dest); err != nil {
 			failf("Failed to copy +20 chroots to +10: %s\n", err)
@@ -186,7 +197,7 @@ var buildOldFormatCmd = &cobra.Command{
 		}
 
 		// Set the format back to the previous format version before building the +10 update
-		prevFormat, err := strconv.Atoi(buildFlags.format)
+		prevFormat, err = strconv.Atoi(buildFlags.format)
 		if err != nil {
 			fail(err)
 		}
@@ -198,6 +209,13 @@ var buildOldFormatCmd = &cobra.Command{
 		if err = b.DecrementMixVer(); err != nil {
 			fail(err)
 		}
+
+		// Break here in case any artifact signing or manual intervention steps must be performed
+		if buildFlags.breakBump {
+			return
+		}
+
+		CONTINUEBUMP:
 		// Re-read builder.conf after updating format/mixver
 		if err = b.ReadVersions(); err != nil {
 			fail(err)
